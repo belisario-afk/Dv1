@@ -123,7 +123,9 @@ namespace Oxide.Plugins
                         ["hoodie"] = 3637124708,
                         ["pants"] = 3637161289,
                         ["mask.balaclava"] = 3637136628
-                    }
+                    },
+                    ["Weapon"] = "pistol.semiauto",
+                    ["WeaponSkin"] = 0
                 },
                 ["Northside Vagos"] = new Dictionary<string, object>
                 {
@@ -133,7 +135,9 @@ namespace Oxide.Plugins
                         ["hoodie"] = 3637132959,
                         ["pants"] = 3637162032,
                         ["mask.bandana"] = 3637144551
-                    }
+                    },
+                    ["Weapon"] = "pistol.semiauto",
+                    ["WeaponSkin"] = 0
                 },
                 ["Southside Sureños"] = new Dictionary<string, object>
                 {
@@ -143,7 +147,9 @@ namespace Oxide.Plugins
                         ["hoodie"] = 3637133781,
                         ["pants"] = 3637162360,
                         ["mask.balaclava"] = 3637136303
-                    }
+                    },
+                    ["Weapon"] = "pistol.semiauto",
+                    ["WeaponSkin"] = 0
                 },
                 ["Eastside Disciples"] = new Dictionary<string, object>
                 {
@@ -153,7 +159,9 @@ namespace Oxide.Plugins
                         ["hoodie"] = 3637126631,
                         ["pants"] = 3637163268,
                         ["mask.bandana"] = 3637149926
-                    }
+                    },
+                    ["Weapon"] = "pistol.semiauto",
+                    ["WeaponSkin"] = 0
                 }
             };
 
@@ -186,16 +194,38 @@ namespace Oxide.Plugins
                     if (clothingList == null || skinDict == null)
                         continue;
 
+                    // Read weapon config with defaults
+                    string weapon = "pistol.semiauto";
+                    ulong weaponSkin = 0;
+                    
+                    object weaponValue;
+                    if (data.TryGetValue("Weapon", out weaponValue) && weaponValue != null)
+                        weapon = weaponValue.ToString();
+                    
+                    object weaponSkinValue;
+                    if (data.TryGetValue("WeaponSkin", out weaponSkinValue) && weaponSkinValue != null)
+                        ulong.TryParse(weaponSkinValue.ToString(), out weaponSkin);
+
                     _gangKits[kvp.Key] = new GangVisuals
                     {
                         Clothing = clothingList.Select(x => x.ToString()).ToList(),
                         Skins = skinDict.ToDictionary(
                             x => x.Key,
                             x => ulong.Parse(x.Value.ToString())
-                        )
+                        ),
+                        Weapon = weapon,
+                        WeaponSkin = weaponSkin
                     };
+                    
+                    Puts($"[DriveBySedanGangs] Loaded gang kit: {kvp.Key} - {clothingList.Count} clothing items, weapon: {weapon}");
                 }
             }
+            else
+            {
+                Puts("[DriveBySedanGangs] WARNING: No 'Visuals' config found. Gang kits will not be loaded.");
+            }
+            
+            Puts($"[DriveBySedanGangs] Loaded {_gangKits.Count} gang kits.");
 
             _borderSpawns.Clear();
             var borderCfg = Config["Border Spawns"] as Dictionary<string, object>;
@@ -319,6 +349,7 @@ namespace Oxide.Plugins
 
             if (_gangKits.TryGetValue(gangName, out var kit))
             {
+                Puts($"[DriveBySedanGangs] Dressing NPC with gang kit: {gangName}");
                 foreach (var itemShort in kit.Clothing)
                 {
                     ulong skin = kit.Skins.ContainsKey(itemShort) ? kit.Skins[itemShort] : 0;
@@ -332,7 +363,16 @@ namespace Oxide.Plugins
                 {
                     npc.inventory.GiveItem(weapon, npc.inventory.containerBelt);
                     npc.UpdateActiveItem(weapon.uid);
+                    Puts($"[DriveBySedanGangs] NPC equipped with weapon: {kit.Weapon}");
                 }
+                else
+                {
+                    Puts($"[DriveBySedanGangs] WARNING: Failed to create weapon '{kit.Weapon}' for NPC");
+                }
+            }
+            else
+            {
+                Puts($"[DriveBySedanGangs] WARNING: No gang kit found for '{gangName}'. Available kits: {string.Join(", ", _gangKits.Keys)}");
             }
 
             npc.SetPlayerFlag(BasePlayer.PlayerFlags.Relaxed, false);
