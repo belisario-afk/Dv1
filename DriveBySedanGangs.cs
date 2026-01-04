@@ -1,15 +1,24 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Oxide.Core.Plugins;
 using UnityEngine;
 using UnityEngine.AI;
 
 namespace Oxide.Plugins
 {
-    [Info("DriveBySedanGangs", "belisario-afk + Gemini + Copilot", "2.5.0")]
+    [Info("DriveBySedanGangs", "belisario-afk + Gemini + Copilot", "2.6.0")]
     [Description("Spawn sedan gangs via command; sedans stalk players with 3 gang scientists that shoot from the car and on foot, then despawn when too far or dead.")]
     public class DriveBySedanGangs : RustPlugin
     {
+        #region Plugin References
+
+        // HoodWars plugin reference for gang territory integration
+        [PluginReference]
+        private Plugin HoodWars;
+
+        #endregion
+
         #region Data Types
 
         private class GangVisuals
@@ -1053,6 +1062,312 @@ namespace Oxide.Plugins
             }
 
             car.SendNetworkUpdate();
+        }
+
+        #endregion
+
+        #region API Methods
+
+        /// <summary>
+        /// API method for external plugins (like HoodWars) to spawn a drive-by gang targeting a player.
+        /// </summary>
+        /// <param name="playerId">The player ID to target</param>
+        /// <param name="count">Number of sedans to spawn (default 1)</param>
+        /// <param name="gangName">Optional gang name for visuals (uses default if not specified)</param>
+        /// <returns>True if spawn succeeded</returns>
+        private bool API_SpawnDriveByGang(ulong playerId, int count = 1, string gangName = null)
+        {
+            var player = BasePlayer.FindByID(playerId);
+            if (player == null || !player.IsConnected || player.IsDead())
+            {
+                Puts($"[DriveBySedanGangs] API_SpawnDriveByGang: Player {playerId} not found or invalid.");
+                return false;
+            }
+
+            if (count <= 0)
+                count = DefaultSedansPerPlayer;
+
+            // Use specified gang name or try to get rival gang from HoodWars
+            if (string.IsNullOrEmpty(gangName))
+            {
+                gangName = GetRivalGangForPlayer(player);
+            }
+
+            EnsureGangForPlayerWithGang(player, count, gangName);
+            Puts($"[DriveBySedanGangs] Spawned {count} drive-by sedan(s) targeting {player.displayName} (gang: {gangName}).");
+            return true;
+        }
+
+        /// <summary>
+        /// API method for external plugins to destroy a player's drive-by gang.
+        /// </summary>
+        /// <param name="playerId">The player ID whose gang to destroy</param>
+        /// <returns>True if destruction succeeded</returns>
+        private bool API_DestroyDriveByGang(ulong playerId)
+        {
+            var player = BasePlayer.FindByID(playerId);
+            if (player == null)
+            {
+                // Player might be offline, try to clean up by player ID
+                if (_playerSedans.TryGetValue(playerId, out var list))
+                {
+                    foreach (var car in list.ToArray())
+                    {
+                        if (car != null && !car.IsDestroyed)
+                            car.Kill();
+                    }
+                    _playerSedans.Remove(playerId);
+                    Puts($"[DriveBySedanGangs] Destroyed drive-by gang for offline player {playerId}.");
+                    return true;
+                }
+                return false;
+            }
+
+            DestroyGangForPlayer(player);
+            Puts($"[DriveBySedanGangs] Destroyed drive-by gang for {player.displayName}.");
+            return true;
+        }
+
+        /// <summary>
+        /// API method to check if a player has an active drive-by gang.
+        /// </summary>
+        /// <param name="playerId">The player ID to check</param>
+        /// <returns>True if player has active drive-by gang</returns>
+        private bool API_HasDriveByGang(ulong playerId)
+        {
+            if (!_playerSedans.TryGetValue(playerId, out var list))
+                return false;
+
+            // Clean up destroyed sedans
+            list.RemoveAll(c => c == null || c.IsDestroyed);
+            return list.Count > 0;
+        }
+
+        /// <summary>
+        /// API method to get the count of sedans targeting a player.
+        /// </summary>
+        /// <param name="playerId">The player ID to check</param>
+        /// <returns>Number of active sedans</returns>
+        private int API_GetDriveByCount(ulong playerId)
+        {
+            if (!_playerSedans.TryGetValue(playerId, out var list))
+                return 0;
+
+            list.RemoveAll(c => c == null || c.IsDestroyed);
+            return list.Count;
+        }
+
+        /// <summary>
+        /// API method to check if an NPC is a drive-by gang member.
+        /// </summary>
+        /// <param name="npcNetId">The network ID of the NPC</param>
+        /// <returns>True if NPC is part of a drive-by gang</returns>
+        private bool API_IsDriveByNPC(ulong npcNetId)
+        {
+            return _driveByNPCs.Contains(npcNetId);
+        }
+
+        /// <summary>
+        /// Get a rival gang name for a player based on HoodWars territory.
+        /// </summary>
+        private string GetRivalGangForPlayer(BasePlayer player)
+        {
+            if (HoodWars == null || !HoodWars.IsLoaded)
+                return DefaultGangName;
+
+            // Get player's gang name from HoodWars (using API wrapper for safety)
+            var playerGang = HoodWars.Call("API_GetPlayerGangName", player.userID) as string;
+            
+            // Get the neighborhood name at player's position
+            var territoryGang = HoodWars.Call("GetNeighborhoodNameAt", player.transform.position) as string;
+
+            // If player is in their own territory, spawn a rival gang
+            // Otherwise, spawn the territory's gang
+            if (!string.IsNullOrEmpty(territoryGang) && territoryGang != "Neutral" && territoryGang != "Neutral Ground")
+            {
+                // Player is in enemy territory - spawn that territory's gang
+                if (playerGang != territoryGang)
+                    return territoryGang;
+            }
+
+            // If player is in their own territory or neutral, pick a rival based on their gang
+            if (!string.IsNullOrEmpty(playerGang) && playerGang != "Neutral")
+            {
+                // Return a rival gang (opposite territory)
+                return GetOppositeGang(playerGang);
+            }
+
+            return DefaultGangName;
+        }
+
+        /// <summary>
+        /// Get the opposite/rival gang based on gang name.
+        /// </summary>
+        private string GetOppositeGang(string gangName)
+        {
+            switch (gangName)
+            {
+                case "Westside Pirus": return "Eastside Disciples";
+                case "Eastside Disciples": return "Westside Pirus";
+                case "Northside Vagos": return "Southside Sureños";
+                case "Southside Sureños": return "Northside Vagos";
+                default: return DefaultGangName;
+            }
+        }
+
+        /// <summary>
+        /// Ensure gang for player with specific gang visuals.
+        /// </summary>
+        private void EnsureGangForPlayerWithGang(BasePlayer player, int desiredCount, string gangName)
+        {
+            if (player == null || !player.IsConnected)
+                return;
+
+            if (!_playerSedans.TryGetValue(player.userID, out var list))
+            {
+                list = new List<BaseEntity>();
+                _playerSedans[player.userID] = list;
+            }
+
+            // Clean invalid cars
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                if (list[i] == null || list[i].IsDestroyed)
+                    list.RemoveAt(i);
+            }
+
+            int missing = desiredCount - list.Count;
+            if (missing <= 0)
+                return;
+
+            for (int i = 0; i < missing; i++)
+            {
+                var car = SpawnSedanNearPlayerWithGang(player, i, desiredCount, gangName);
+                if (car != null)
+                    list.Add(car);
+            }
+        }
+
+        /// <summary>
+        /// Spawn sedan near player with specific gang visuals.
+        /// </summary>
+        private BaseEntity SpawnSedanNearPlayerWithGang(BasePlayer player, int indexInGang, int gangSize, string gangName)
+        {
+            Vector3 playerPos = player.transform.position;
+
+            float angle = (360f / Mathf.Max(gangSize, 1)) * indexInGang;
+            float rad = angle * Mathf.Deg2Rad;
+
+            Vector3 offset = new Vector3(
+                Mathf.Cos(rad) * SpawnRadius,
+                0f,
+                Mathf.Sin(rad) * SpawnRadius
+            );
+
+            Vector3 samplePos = playerPos + offset;
+
+            if (!FindGroundPosition(samplePos, out var finalPos))
+            {
+                PrintWarning($"[DriveBySedanGangs] Failed to find ground for sedan spawn near {player.displayName}.");
+                return null;
+            }
+
+            Vector3 toPlayer = (playerPos - finalPos);
+            toPlayer.y = 0f;
+            if (toPlayer.sqrMagnitude < 0.01f)
+                toPlayer = -player.transform.forward;
+
+            toPlayer.Normalize();
+            Quaternion spawnRot = Quaternion.LookRotation(toPlayer, Vector3.up);
+
+            BaseEntity car = GameManager.server.CreateEntity(SedanPrefab, finalPos, spawnRot, true);
+            if (car == null)
+            {
+                PrintError("Failed to create sedan entity from prefab: " + SedanPrefab);
+                return null;
+            }
+
+            car.enableSaving = false;
+            car.Spawn();
+
+            var rb = car.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.velocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+                rb.isKinematic = false;
+            }
+
+            car.SendNetworkUpdateImmediate();
+
+            _deployedSedans.Remove(car);
+            _deployScheduled.Remove(car);
+            _retiringSedans.Remove(car);
+
+            // Use the specified gang name instead of DefaultGangName
+            SeatGangScientistsInSedanWithGang(car, gangName, player);
+
+            return car;
+        }
+
+        /// <summary>
+        /// Seat gang scientists in sedan with specific gang visuals.
+        /// </summary>
+        private void SeatGangScientistsInSedanWithGang(BaseEntity car, string gangName, BasePlayer target)
+        {
+            if (car == null || car.IsDestroyed) return;
+
+            var seats = car.GetComponentsInChildren<BaseMountable>(true);
+            if (seats == null || seats.Length == 0)
+            {
+                Puts("[DriveBySedanGangs] No seats (BaseMountable) found on sedan; cannot seat scientists.");
+                return;
+            }
+
+            int needed = 3;
+            var seated = new List<ScientistNPC>();
+
+            foreach (var seat in seats)
+            {
+                if (needed <= 0)
+                    break;
+
+                if (seat == null || seat.IsDestroyed) continue;
+                if (seat.AnyMounted()) continue;
+
+                Vector3 spawnPos = seat.transform.position + Vector3.up * 0.1f;
+                var npc = CreateDressedGangScientist(spawnPos, seat.transform.rotation, gangName);
+                if (npc == null) continue;
+
+                seat.AttemptMount(npc);
+
+                _scientistSeats[npc] = seat;
+
+                if (npc.Brain != null && target != null)
+                {
+                    if (npc.Brain.Senses?.Memory != null)
+                        npc.Brain.Senses.Memory.SetKnown(target, npc, npc.Brain.Senses);
+
+                    if (npc.Brain.Events?.Memory?.Entity != null)
+                        npc.Brain.Events.Memory.Entity.Set(target, 0);
+                }
+
+                seated.Add(npc);
+                needed--;
+            }
+
+            if (seated.Count > 0)
+            {
+                _sedanScientists[car] = seated;
+
+                _driveByStates[car] = new DriveByState
+                {
+                    TargetID = target.userID,
+                    Shooters = new List<ScientistNPC>(seated),
+                    LastShootTime = 0f,
+                    LastShooterIndex = -1
+                };
+            }
         }
 
         #endregion
