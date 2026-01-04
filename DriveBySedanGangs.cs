@@ -366,25 +366,54 @@ namespace Oxide.Plugins
         /// </summary>
         private string GetPlayerGangFromHoodWars(BasePlayer player)
         {
-            if (player == null || HoodWars == null || !HoodWars.IsLoaded)
+            if (player == null)
+            {
+                Puts($"[DriveBySedanGangs] DEBUG: GetPlayerGangFromHoodWars - player is null");
                 return null;
+            }
+            
+            if (HoodWars == null)
+            {
+                Puts($"[DriveBySedanGangs] DEBUG: GetPlayerGangFromHoodWars - HoodWars plugin reference is null");
+                return null;
+            }
+            
+            if (!HoodWars.IsLoaded)
+            {
+                Puts($"[DriveBySedanGangs] DEBUG: GetPlayerGangFromHoodWars - HoodWars not loaded");
+                return null;
+            }
+
+            Puts($"[DriveBySedanGangs] DEBUG: Attempting to get gang for player {player.userID} ({player.displayName})");
+            Puts($"[DriveBySedanGangs] DEBUG: HoodWars plugin: {HoodWars.Name} v{HoodWars.Version}");
 
             // Try different API method names in order of preference
             string[] methodNames = { "GetPlayerGangName", "API_GetPlayerGangName", "OnGetPlayerGangName" };
             
             foreach (var methodName in methodNames)
             {
-                var result = HoodWars.Call(methodName, player.userID);
-                if (result != null)
+                Puts($"[DriveBySedanGangs] DEBUG: Calling HoodWars.{methodName}({player.userID})...");
+                try
                 {
-                    var gangName = result.ToString();
-                    Puts($"[DriveBySedanGangs] DEBUG: {methodName} returned: '{gangName}'");
+                    var result = HoodWars.Call(methodName, player.userID);
+                    Puts($"[DriveBySedanGangs] DEBUG: {methodName} raw result: {(result == null ? "NULL" : $"'{result}' (type: {result.GetType().Name})")}");
                     
-                    // Check if it's a valid gang (not neutral)
-                    if (!string.IsNullOrEmpty(gangName) && gangName != NeutralTerritory && gangName != NeutralGround)
+                    if (result != null)
                     {
-                        return gangName;
+                        var gangName = result.ToString();
+                        Puts($"[DriveBySedanGangs] DEBUG: {methodName} returned: '{gangName}'");
+                        
+                        // Check if it's a valid gang (not neutral)
+                        if (!string.IsNullOrEmpty(gangName) && gangName != NeutralTerritory && gangName != NeutralGround)
+                        {
+                            Puts($"[DriveBySedanGangs] DEBUG: Found valid gang '{gangName}' via {methodName}");
+                            return gangName;
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Puts($"[DriveBySedanGangs] DEBUG: Exception calling {methodName}: {ex.Message}");
                 }
             }
 

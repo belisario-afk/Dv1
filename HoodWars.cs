@@ -2682,14 +2682,25 @@ namespace Oxide.Plugins
         // API method to get a player's gang name by user ID (used by GangKits)
         private string GetPlayerGangName(ulong playerId)
         {
-            if (_config == null || _storedData == null) return "Neutral";
+            Puts($"[DEBUG] GetPlayerGangName called for {playerId}");
+            if (_config == null || _storedData == null)
+            {
+                Puts($"[DEBUG] GetPlayerGangName: config or storedData is null");
+                return "Neutral";
+            }
             
             var playerInfo = GetPlayerData(playerId);
+            Puts($"[DEBUG] GetPlayerGangName: playerInfo.HomeHood = {playerInfo.HomeHood}");
             if (playerInfo.HomeHood == NeighborhoodType.Neutral)
+            {
+                Puts($"[DEBUG] GetPlayerGangName: Player is Neutral");
                 return "Neutral";
+            }
             
             var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
-            return hoodConfig?.Name ?? "Neutral";
+            var gangName = hoodConfig?.Name ?? "Neutral";
+            Puts($"[DEBUG] GetPlayerGangName: returning '{gangName}'");
+            return gangName;
         }
 
         // API method to get neighborhood name at position (used by DriveBy)
@@ -2706,7 +2717,10 @@ namespace Oxide.Plugins
         // NOTE: Must return object for Oxide Plugin.Call() to work properly
         private object API_GetPlayerGangName(ulong playerId)
         {
-            return GetPlayerGangName(playerId);
+            Puts($"[DEBUG] API_GetPlayerGangName called for {playerId}");
+            var result = GetPlayerGangName(playerId);
+            Puts($"[DEBUG] API_GetPlayerGangName returning: {result}");
+            return result;
         }
 
         // Oxide hook-style method for cross-plugin communication
