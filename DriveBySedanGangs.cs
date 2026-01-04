@@ -579,7 +579,8 @@ namespace Oxide.Plugins
             if (string.IsNullOrEmpty(playerGang) || playerGang == NeutralTerritory)
                 return; // Neutral players don't trigger territory spawns
 
-            // Get the territory the player is currently in
+            // Get the territory the player is currently in based on their world position (X, Z coordinates)
+            // HoodWars divides the map into 4 quadrants based on X and Z coordinates
             var currentTerritory = HoodWars.Call("GetNeighborhoodNameAt", player.transform.position) as string;
             if (string.IsNullOrEmpty(currentTerritory) || currentTerritory == NeutralGround)
             {
@@ -591,6 +592,13 @@ namespace Oxide.Plugins
             // Get player's last known territory
             _playerLastTerritory.TryGetValue(player.userID, out var lastTerritory);
 
+            // Debug logging to help test territory detection
+            if (lastTerritory != currentTerritory)
+            {
+                Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} moved from '{lastTerritory ?? "null"}' to '{currentTerritory}' at position X:{player.transform.position.x:F0} Z:{player.transform.position.z:F0}");
+                Puts($"[DriveBySedanGangs] DEBUG: Player's gang: {playerGang}, Current territory: {currentTerritory}, Is enemy territory: {currentTerritory != playerGang}");
+            }
+
             // Update current territory
             _playerLastTerritory[player.userID] = currentTerritory;
 
@@ -601,8 +609,12 @@ namespace Oxide.Plugins
                 // Check cooldown
                 if (_playerTerritorySpawnCooldown.TryGetValue(player.userID, out var lastSpawnTime))
                 {
-                    if (Time.realtimeSinceStartup - lastSpawnTime < TerritorySpawnCooldown)
+                    var cooldownRemaining = TerritorySpawnCooldown - (Time.realtimeSinceStartup - lastSpawnTime);
+                    if (cooldownRemaining > 0)
+                    {
+                        Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} on cooldown for {cooldownRemaining:F0} more seconds");
                         return; // Still on cooldown
+                    }
                 }
 
                 // Check if player already has an active drive-by gang
@@ -611,11 +623,14 @@ namespace Oxide.Plugins
                     // Clean up destroyed sedans
                     existingGangs.RemoveAll(c => c == null || c.IsDestroyed);
                     if (existingGangs.Count > 0)
+                    {
+                        Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} already has {existingGangs.Count} active drive-by gang(s)");
                         return; // Already has active gang
+                    }
                 }
 
                 // Spawn a drive-by gang from the territory they entered
-                Puts($"[DriveBySedanGangs] Player {player.userID} ({playerGang}) crossed into {currentTerritory} territory - spawning drive-by!");
+                Puts($"[DriveBySedanGangs] TERRITORY SPAWN: Player {player.userID} ({playerGang}) crossed into {currentTerritory} territory at X:{player.transform.position.x:F0} Z:{player.transform.position.z:F0} - spawning drive-by!");
                 
                 // Set cooldown
                 _playerTerritorySpawnCooldown[player.userID] = Time.realtimeSinceStartup;
@@ -1547,6 +1562,67 @@ namespace Oxide.Plugins
         #endregion
 
         #region Chat Commands
+
+        [ChatCommand("sedandebug")]
+        private void CmdSedanDebug(BasePlayer player, string command, string[] args)
+        {
+            // Show debug info about territory detection
+            player.ChatMessage("<color=#55ff55>=== Drive-By Sedan Debug Info ===</color>");
+            player.ChatMessage($"Your Position: X:{player.transform.position.x:F0} Z:{player.transform.position.z:F0}");
+            
+            if (HoodWars == null || !HoodWars.IsLoaded)
+            {
+                player.ChatMessage("<color=#ff4444>HoodWars plugin is NOT loaded - territory detection disabled</color>");
+                return;
+            }
+            
+            // Get player's gang
+            var playerGang = HoodWars.Call("API_GetPlayerGangName", player.userID) as string;
+            player.ChatMessage($"Your Gang: <color=#ffaa00>{playerGang ?? "None (Neutral)"}</color>");
+            
+            // Get current territory based on position
+            var currentTerritory = HoodWars.Call("GetNeighborhoodNameAt", player.transform.position) as string;
+            player.ChatMessage($"Current Territory: <color=#ffaa00>{currentTerritory ?? "Unknown"}</color>");
+            
+            // Check if in enemy territory
+            bool isEnemyTerritory = !string.IsNullOrEmpty(currentTerritory) 
+                && currentTerritory != NeutralGround 
+                && currentTerritory != playerGang;
+            player.ChatMessage($"Is Enemy Territory: <color={(isEnemyTerritory ? "#ff4444>YES" : "#55ff55>NO")}</color>");
+            
+            // Show last known territory
+            _playerLastTerritory.TryGetValue(player.userID, out var lastTerritory);
+            player.ChatMessage($"Last Tracked Territory: <color=#aaaaaa>{lastTerritory ?? "None"}</color>");
+            
+            // Show cooldown status
+            if (_playerTerritorySpawnCooldown.TryGetValue(player.userID, out var lastSpawnTime))
+            {
+                var cooldownRemaining = TerritorySpawnCooldown - (Time.realtimeSinceStartup - lastSpawnTime);
+                if (cooldownRemaining > 0)
+                    player.ChatMessage($"Spawn Cooldown: <color=#ff4444>{cooldownRemaining:F0} seconds remaining</color>");
+                else
+                    player.ChatMessage($"Spawn Cooldown: <color=#55ff55>Ready</color>");
+            }
+            else
+            {
+                player.ChatMessage($"Spawn Cooldown: <color=#55ff55>Ready (never triggered)</color>");
+            }
+            
+            // Show active gangs
+            if (_playerSedans.TryGetValue(player.userID, out var gangs))
+            {
+                gangs.RemoveAll(c => c == null || c.IsDestroyed);
+                player.ChatMessage($"Active Drive-By Gangs: <color=#ffaa00>{gangs.Count}</color>");
+            }
+            else
+            {
+                player.ChatMessage($"Active Drive-By Gangs: <color=#aaaaaa>0</color>");
+            }
+            
+            player.ChatMessage("<color=#55ff55>=================================</color>");
+            player.ChatMessage("Territory detection uses your X,Z world coordinates.");
+            player.ChatMessage("The map is divided into 4 quadrants based on these coordinates.");
+        }
 
         [ChatCommand("stalksedan")]
         private void CmdStalkSedan(BasePlayer player, string command, string[] args)
