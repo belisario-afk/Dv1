@@ -1576,19 +1576,35 @@ namespace Oxide.Plugins
                 return;
             }
             
-            // Get player's gang
+            // Get player's gang membership (from HoodWars stored data - where you "blooded in")
             var playerGang = HoodWars.Call("API_GetPlayerGangName", player.userID) as string;
-            player.ChatMessage($"Your Gang: <color=#ffaa00>{playerGang ?? "None (Neutral)"}</color>");
+            bool hasGang = !string.IsNullOrEmpty(playerGang) && playerGang != NeutralTerritory;
+            player.ChatMessage($"Your Gang Membership: <color={(hasGang ? "#55ff55" : "#ff4444")}>{playerGang ?? "None"}</color>");
             
-            // Get current territory based on position
+            if (!hasGang)
+            {
+                player.ChatMessage("<color=#ffaa00>NOTE: To join a gang, place a Tool Cupboard (TC) in a gang's territory.</color>");
+                player.ChatMessage("<color=#ffaa00>This is called 'blooding in' and makes you a member of that gang.</color>");
+            }
+            
+            // Get current territory based on position (where you're standing RIGHT NOW)
             var currentTerritory = HoodWars.Call("GetNeighborhoodNameAt", player.transform.position) as string;
-            player.ChatMessage($"Current Territory: <color=#ffaa00>{currentTerritory ?? "Unknown"}</color>");
+            player.ChatMessage($"Territory You're Standing In: <color=#ffaa00>{currentTerritory ?? "Unknown"}</color>");
             
-            // Check if in enemy territory
-            bool isEnemyTerritory = !string.IsNullOrEmpty(currentTerritory) 
+            // Check if in enemy territory (only applies if you HAVE a gang)
+            bool isEnemyTerritory = hasGang 
+                && !string.IsNullOrEmpty(currentTerritory) 
                 && currentTerritory != NeutralGround 
                 && currentTerritory != playerGang;
-            player.ChatMessage($"Is Enemy Territory: <color={(isEnemyTerritory ? "#ff4444>YES" : "#55ff55>NO")}</color>");
+            
+            if (hasGang)
+            {
+                player.ChatMessage($"Is Enemy Territory: <color={(isEnemyTerritory ? "#ff4444>YES" : "#55ff55>NO")}</color>");
+            }
+            else
+            {
+                player.ChatMessage($"Is Enemy Territory: <color=#aaaaaa>N/A (you need to join a gang first)</color>");
+            }
             
             // Show last known territory
             _playerLastTerritory.TryGetValue(player.userID, out var lastTerritory);
@@ -1620,8 +1636,13 @@ namespace Oxide.Plugins
             }
             
             player.ChatMessage("<color=#55ff55>=================================</color>");
-            player.ChatMessage("Territory detection uses your X,Z world coordinates.");
-            player.ChatMessage("The map is divided into 4 quadrants based on these coordinates.");
+            
+            // Explain spawn requirements
+            player.ChatMessage("<color=#ffaa00>For territory spawns to trigger:</color>");
+            player.ChatMessage("1. You must be a gang member (place TC in gang territory)");
+            player.ChatMessage("2. You must cross into ENEMY territory");
+            player.ChatMessage("3. You must not have active drive-by gangs");
+            player.ChatMessage("4. Cooldown must be ready (5 min between spawns)");
         }
 
         [ChatCommand("stalksedan")]
