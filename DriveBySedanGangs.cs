@@ -574,9 +574,10 @@ namespace Oxide.Plugins
             if (player == null || HoodWars == null || !HoodWars.IsLoaded)
                 return;
 
-            // Get player's gang from HoodWars
-            var playerGang = HoodWars.Call("API_GetPlayerGangName", player.userID) as string;
-            if (string.IsNullOrEmpty(playerGang) || playerGang == NeutralTerritory)
+            // Get player's gang from HoodWars (using same method name as GangKits)
+            var playerGangResult = HoodWars.Call("GetPlayerGangName", player.userID);
+            var playerGang = playerGangResult?.ToString();
+            if (string.IsNullOrEmpty(playerGang) || playerGang == NeutralTerritory || playerGang == NeutralGround)
                 return; // Neutral players don't trigger territory spawns
 
             // Get the territory the player is currently in based on their world position (X, Z coordinates)
@@ -1363,8 +1364,9 @@ namespace Oxide.Plugins
             if (HoodWars == null || !HoodWars.IsLoaded)
                 return DefaultGangName;
 
-            // Get player's gang name from HoodWars (using API wrapper for safety)
-            var playerGang = HoodWars.Call("API_GetPlayerGangName", player.userID) as string;
+            // Get player's gang name from HoodWars (using same method name as GangKits)
+            var playerGangResult = HoodWars.Call("GetPlayerGangName", player.userID);
+            var playerGang = playerGangResult?.ToString();
             
             // Get the neighborhood name at player's position
             var territoryGang = HoodWars.Call("GetNeighborhoodNameAt", player.transform.position) as string;
@@ -1569,6 +1571,7 @@ namespace Oxide.Plugins
             // Show debug info about territory detection
             player.ChatMessage("<color=#55ff55>=== Drive-By Sedan Debug Info ===</color>");
             player.ChatMessage($"Your Position: X:{player.transform.position.x:F0} Z:{player.transform.position.z:F0}");
+            player.ChatMessage($"Your Steam ID: {player.userID}");
             
             if (HoodWars == null || !HoodWars.IsLoaded)
             {
@@ -1577,8 +1580,12 @@ namespace Oxide.Plugins
             }
             
             // Get player's gang membership (from HoodWars stored data - where you "blooded in")
-            var playerGang = HoodWars.Call("API_GetPlayerGangName", player.userID) as string;
-            bool hasGang = !string.IsNullOrEmpty(playerGang) && playerGang != NeutralTerritory;
+            // Try calling GetPlayerGangName directly (same method GangKits uses)
+            var playerGangResult = HoodWars.Call("GetPlayerGangName", player.userID);
+            var playerGang = playerGangResult?.ToString();
+            Puts($"[DriveBySedanGangs] DEBUG sedandebug: GetPlayerGangName({player.userID}) returned: '{playerGang ?? "null"}'");
+            
+            bool hasGang = !string.IsNullOrEmpty(playerGang) && playerGang != NeutralTerritory && playerGang != NeutralGround;
             player.ChatMessage($"Your Gang Membership: <color={(hasGang ? "#55ff55" : "#ff4444")}>{playerGang ?? "None"}</color>");
             
             if (!hasGang)
