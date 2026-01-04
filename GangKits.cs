@@ -225,22 +225,22 @@ namespace Oxide.Plugins
                     if (weapon.MoveToContainer(player.inventory.containerBelt))
                     {
                         weaponGiven = true;
-                        Puts($"[DEBUG] Gave weapon {kit.Weapon} to belt container");
+                        Puts($"[DEBUG] Gave weapon {kit.Weapon} (skin: {kit.WeaponSkin}) to belt container");
                     }
                     else if (forcedGang != null && weapon.MoveToContainer(player.inventory.containerMain))
                     {
                         weaponGiven = true;
-                        Puts($"[DEBUG] Gave weapon {kit.Weapon} to main container (belt was full)");
+                        Puts($"[DEBUG] Gave weapon {kit.Weapon} (skin: {kit.WeaponSkin}) to main container (belt was full)");
                     }
                     else 
                     {
                         weapon.Remove();
-                        Puts($"[DEBUG] Failed to give weapon {kit.Weapon} - removed item");
+                        Puts($"[DEBUG] Failed to give weapon {kit.Weapon} (skin: {kit.WeaponSkin}) - removed item");
                     }
                 }
                 else
                 {
-                    Puts($"[DEBUG] Failed to create weapon: {kit.Weapon}");
+                    Puts($"[DEBUG] Failed to create weapon: {kit.Weapon} (skin: {kit.WeaponSkin})");
                 }
             }
             else
