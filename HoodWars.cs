@@ -2703,9 +2703,20 @@ namespace Oxide.Plugins
         }
 
         // API wrapper for external plugins to get player gang name
-        private string API_GetPlayerGangName(ulong playerId)
+        // NOTE: Must return object for Oxide Plugin.Call() to work properly
+        private object API_GetPlayerGangName(ulong playerId)
         {
             return GetPlayerGangName(playerId);
+        }
+
+        // Oxide hook-style method for cross-plugin communication
+        // This format is commonly used for plugin-to-plugin API calls
+        object OnGetPlayerGangName(ulong playerId)
+        {
+            Puts($"[DEBUG] OnGetPlayerGangName called for {playerId}");
+            var result = GetPlayerGangName(playerId);
+            Puts($"[DEBUG] OnGetPlayerGangName returning: {result}");
+            return result;
         }
 
         #endregion

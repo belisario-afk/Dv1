@@ -360,6 +360,38 @@ namespace Oxide.Plugins
             return false;
         }
 
+        /// <summary>
+        /// Get a player's gang name from HoodWars using multiple API methods as fallbacks.
+        /// Returns null if player is not in a gang or HoodWars is not available.
+        /// </summary>
+        private string GetPlayerGangFromHoodWars(BasePlayer player)
+        {
+            if (player == null || HoodWars == null || !HoodWars.IsLoaded)
+                return null;
+
+            // Try different API method names in order of preference
+            string[] methodNames = { "GetPlayerGangName", "API_GetPlayerGangName", "OnGetPlayerGangName" };
+            
+            foreach (var methodName in methodNames)
+            {
+                var result = HoodWars.Call(methodName, player.userID);
+                if (result != null)
+                {
+                    var gangName = result.ToString();
+                    Puts($"[DriveBySedanGangs] DEBUG: {methodName} returned: '{gangName}'");
+                    
+                    // Check if it's a valid gang (not neutral)
+                    if (!string.IsNullOrEmpty(gangName) && gangName != NeutralTerritory && gangName != NeutralGround)
+                    {
+                        return gangName;
+                    }
+                }
+            }
+
+            Puts($"[DriveBySedanGangs] DEBUG: No valid gang found for player {player.userID} (all methods returned null or Neutral)");
+            return null;
+        }
+
         #endregion
 
         #region Scientist Creation & Death Handling
@@ -574,10 +606,9 @@ namespace Oxide.Plugins
             if (player == null || HoodWars == null || !HoodWars.IsLoaded)
                 return;
 
-            // Get player's gang from HoodWars (using same method name as GangKits)
-            var playerGangResult = HoodWars.Call("GetPlayerGangName", player.userID);
-            var playerGang = playerGangResult?.ToString();
-            if (string.IsNullOrEmpty(playerGang) || playerGang == NeutralTerritory || playerGang == NeutralGround)
+            // Get player's gang from HoodWars using multiple fallback methods
+            var playerGang = GetPlayerGangFromHoodWars(player);
+            if (string.IsNullOrEmpty(playerGang))
                 return; // Neutral players don't trigger territory spawns
 
             // Get the territory the player is currently in based on their world position (X, Z coordinates)
@@ -1364,9 +1395,8 @@ namespace Oxide.Plugins
             if (HoodWars == null || !HoodWars.IsLoaded)
                 return DefaultGangName;
 
-            // Get player's gang name from HoodWars (using same method name as GangKits)
-            var playerGangResult = HoodWars.Call("GetPlayerGangName", player.userID);
-            var playerGang = playerGangResult?.ToString();
+            // Get player's gang name from HoodWars using multiple fallback methods
+            var playerGang = GetPlayerGangFromHoodWars(player);
             
             // Get the neighborhood name at player's position
             var territoryGang = HoodWars.Call("GetNeighborhoodNameAt", player.transform.position) as string;
@@ -1579,13 +1609,11 @@ namespace Oxide.Plugins
                 return;
             }
             
-            // Get player's gang membership (from HoodWars stored data - where you "blooded in")
-            // Try calling GetPlayerGangName directly (same method GangKits uses)
-            var playerGangResult = HoodWars.Call("GetPlayerGangName", player.userID);
-            var playerGang = playerGangResult?.ToString();
-            Puts($"[DriveBySedanGangs] DEBUG sedandebug: GetPlayerGangName({player.userID}) returned: '{playerGang ?? "null"}'");
+            // Get player's gang membership using multiple fallback methods
+            player.ChatMessage("<color=#aaaaaa>Querying HoodWars for your gang... (check server console for debug)</color>");
+            var playerGang = GetPlayerGangFromHoodWars(player);
             
-            bool hasGang = !string.IsNullOrEmpty(playerGang) && playerGang != NeutralTerritory && playerGang != NeutralGround;
+            bool hasGang = !string.IsNullOrEmpty(playerGang);
             player.ChatMessage($"Your Gang Membership: <color={(hasGang ? "#55ff55" : "#ff4444")}>{playerGang ?? "None"}</color>");
             
             if (!hasGang)
