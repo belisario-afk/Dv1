@@ -49,7 +49,7 @@ namespace Oxide.Plugins
                         ["mask.balaclava"] = 3637136628 
                     },
                     ["Weapon"] = "pistol.semiauto",
-                    ["WeaponSkin"] = 0 
+                    ["WeaponSkin"] = 3639125341 
                 },
                 ["Northside Vagos"] = new Dictionary<string, object>
                 {
@@ -61,7 +61,7 @@ namespace Oxide.Plugins
                         ["mask.bandana"] = 3637144551 
                     },
                     ["Weapon"] = "pistol.semiauto",
-                    ["WeaponSkin"] = 0 
+                    ["WeaponSkin"] = 3639147460 
                 },
                 ["Southside Sureños"] = new Dictionary<string, object>
                 {
@@ -73,7 +73,7 @@ namespace Oxide.Plugins
                         ["mask.balaclava"] = 3637136303 
                     },
                     ["Weapon"] = "pistol.semiauto",
-                    ["WeaponSkin"] = 0 
+                    ["WeaponSkin"] = 3639138385 
                 },
                 ["Eastside Disciples"] = new Dictionary<string, object>
                 {
@@ -85,7 +85,7 @@ namespace Oxide.Plugins
                         ["mask.bandana"] = 3637149926 
                     },
                     ["Weapon"] = "pistol.semiauto",
-                    ["WeaponSkin"] = 0 
+                    ["WeaponSkin"] = 3639144230 
                 }
             };
             SaveConfig();
