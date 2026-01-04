@@ -1,13 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Oxide.Core;
 using Oxide.Core.Plugins;
 using UnityEngine;
 using UnityEngine.AI;
 
 namespace Oxide.Plugins
 {
-    [Info("DriveBySedanGangs", "belisario-afk + Gemini + Copilot", "2.6.0")]
+    [Info("DriveBySedanGangs", "belisario-afk + Gemini + Copilot", "2.8.0")]
     [Description("Spawn sedan gangs via command; sedans stalk players with 3 gang scientists that shoot from the car and on foot, then despawn when too far or dead.")]
     public class DriveBySedanGangs : RustPlugin
     {
@@ -16,6 +17,24 @@ namespace Oxide.Plugins
         // HoodWars plugin reference for gang territory integration
         [PluginReference]
         private Plugin HoodWars;
+
+        #endregion
+
+        #region HoodWars Data Types (for reading HoodWars_CoreData.json directly)
+
+        // These mirror the data structures in HoodWars.cs
+        private class HoodWarsStoredData
+        {
+            public Dictionary<ulong, HoodWarsPlayerInfo> Players = new Dictionary<ulong, HoodWarsPlayerInfo>();
+        }
+
+        private class HoodWarsPlayerInfo
+        {
+            public int HomeHood = 4; // 0=West, 1=North, 2=South, 3=East, 4=Neutral
+        }
+
+        // Gang names corresponding to HomeHood enum values
+        private static readonly string[] GangNames = { "Westside Pirus", "Northside Vagos", "Southside Sureños", "Eastside Disciples", "Neutral" };
 
         #endregion
 
@@ -361,8 +380,8 @@ namespace Oxide.Plugins
         }
 
         /// <summary>
-        /// Get a player's gang name from HoodWars using multiple API methods as fallbacks.
-        /// Returns null if player is not in a gang or HoodWars is not available.
+        /// Get a player's gang name by reading directly from HoodWars_CoreData.json.
+        /// This bypasses Plugin.Call() which doesn't work with private methods.
         /// </summary>
         private string GetPlayerGangFromHoodWars(BasePlayer player)
         {
@@ -371,54 +390,61 @@ namespace Oxide.Plugins
                 Puts($"[DriveBySedanGangs] DEBUG: GetPlayerGangFromHoodWars - player is null");
                 return null;
             }
-            
-            if (HoodWars == null)
-            {
-                Puts($"[DriveBySedanGangs] DEBUG: GetPlayerGangFromHoodWars - HoodWars plugin reference is null");
-                return null;
-            }
-            
-            if (!HoodWars.IsLoaded)
-            {
-                Puts($"[DriveBySedanGangs] DEBUG: GetPlayerGangFromHoodWars - HoodWars not loaded");
-                return null;
-            }
 
             Puts($"[DriveBySedanGangs] DEBUG: Attempting to get gang for player {player.userID} ({player.displayName})");
-            Puts($"[DriveBySedanGangs] DEBUG: HoodWars plugin: {HoodWars.Name} v{HoodWars.Version}");
 
-            // Try different API method names in order of preference
-            string[] methodNames = { "GetPlayerGangName", "API_GetPlayerGangName", "OnGetPlayerGangName" };
-            
-            foreach (var methodName in methodNames)
+            // Read directly from HoodWars data file
+            try
             {
-                Puts($"[DriveBySedanGangs] DEBUG: Calling HoodWars.{methodName}({player.userID})...");
-                try
+                var dataFile = Interface.Oxide.DataFileSystem.GetFile("HoodWars_CoreData");
+                if (dataFile == null)
                 {
-                    var result = HoodWars.Call(methodName, player.userID);
-                    Puts($"[DriveBySedanGangs] DEBUG: {methodName} raw result: {(result == null ? "NULL" : $"'{result}' (type: {result.GetType().Name})")}");
-                    
-                    if (result != null)
-                    {
-                        var gangName = result.ToString();
-                        Puts($"[DriveBySedanGangs] DEBUG: {methodName} returned: '{gangName}'");
-                        
-                        // Check if it's a valid gang (not neutral)
-                        if (!string.IsNullOrEmpty(gangName) && gangName != NeutralTerritory && gangName != NeutralGround)
-                        {
-                            Puts($"[DriveBySedanGangs] DEBUG: Found valid gang '{gangName}' via {methodName}");
-                            return gangName;
-                        }
-                    }
+                    Puts($"[DriveBySedanGangs] DEBUG: HoodWars_CoreData.json not found");
+                    return null;
                 }
-                catch (Exception ex)
-                {
-                    Puts($"[DriveBySedanGangs] DEBUG: Exception calling {methodName}: {ex.Message}");
-                }
-            }
 
-            Puts($"[DriveBySedanGangs] DEBUG: No valid gang found for player {player.userID} (all methods returned null or Neutral)");
-            return null;
+                var hoodWarsData = dataFile.ReadObject<HoodWarsStoredData>();
+                if (hoodWarsData == null || hoodWarsData.Players == null)
+                {
+                    Puts($"[DriveBySedanGangs] DEBUG: HoodWars data is null or has no Players dictionary");
+                    return null;
+                }
+
+                Puts($"[DriveBySedanGangs] DEBUG: HoodWars data loaded, {hoodWarsData.Players.Count} players in database");
+
+                if (!hoodWarsData.Players.TryGetValue(player.userID, out var playerInfo))
+                {
+                    Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} not found in HoodWars data");
+                    return null;
+                }
+
+                Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} HomeHood = {playerInfo.HomeHood}");
+
+                // HomeHood: 0=West, 1=North, 2=South, 3=East, 4=Neutral
+                if (playerInfo.HomeHood < 0 || playerInfo.HomeHood >= GangNames.Length)
+                {
+                    Puts($"[DriveBySedanGangs] DEBUG: Invalid HomeHood value: {playerInfo.HomeHood}");
+                    return null;
+                }
+
+                var gangName = GangNames[playerInfo.HomeHood];
+                Puts($"[DriveBySedanGangs] DEBUG: Resolved gang name: '{gangName}'");
+
+                // Check if it's a valid gang (not Neutral)
+                if (gangName == NeutralTerritory || gangName == NeutralGround)
+                {
+                    Puts($"[DriveBySedanGangs] DEBUG: Player is Neutral, returning null");
+                    return null;
+                }
+
+                Puts($"[DriveBySedanGangs] DEBUG: SUCCESS! Player {player.userID} is in gang '{gangName}'");
+                return gangName;
+            }
+            catch (Exception ex)
+            {
+                Puts($"[DriveBySedanGangs] DEBUG: Exception reading HoodWars data: {ex.Message}");
+                return null;
+            }
         }
 
         #endregion
