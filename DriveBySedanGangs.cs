@@ -35,6 +35,7 @@ namespace Oxide.Plugins
             public List<ScientistNPC> Shooters = new List<ScientistNPC>();
             public float LastShootTime;
             public int LastShooterIndex = -1;
+            public string GangName;
         }
 
         #endregion
@@ -51,6 +52,8 @@ namespace Oxide.Plugins
         private readonly HashSet<ulong> _driveByNPCs = new HashSet<ulong>();
 
         private const string DefaultGangName = "Westside Pirus";
+        private const string NeutralTerritory = "Neutral";
+        private const string NeutralGround = "Neutral Ground";
 
         private const string SedanPrefab = "assets/content/vehicles/sedan_a/sedantest.entity.prefab";
 
@@ -106,6 +109,17 @@ namespace Oxide.Plugins
         // sedan -> flagged for safe retire (so timers/logic ignore it)
         private readonly HashSet<BaseEntity> _retiringSedans =
             new HashSet<BaseEntity>();
+
+        // Territory tracking for automatic drive-by spawning
+        private readonly Dictionary<ulong, string> _playerLastTerritory =
+            new Dictionary<ulong, string>();
+        
+        // Cooldown tracking for territory-based spawns (prevents spam)
+        private readonly Dictionary<ulong, float> _playerTerritorySpawnCooldown =
+            new Dictionary<ulong, float>();
+        
+        private const float TerritoryCheckInterval = 2f;  // Check player territories every 2 seconds
+        private const float TerritorySpawnCooldown = 300f; // 5 minute cooldown between territory spawns
 
         #endregion
 
@@ -314,6 +328,38 @@ namespace Oxide.Plugins
             });
         }
 
+        /// <summary>
+        /// Check if a player is wearing clothing with skin IDs that match a specific gang's kit.
+        /// Returns true if the player has any item with a skin ID matching the gang's clothing skins.
+        /// </summary>
+        private bool IsPlayerWearingGangClothing(BasePlayer player, string gangName)
+        {
+            if (player == null || string.IsNullOrEmpty(gangName))
+                return false;
+
+            if (!_gangKits.TryGetValue(gangName, out var kit) || kit.Skins == null)
+                return false;
+
+            // Get all skin IDs used by this gang
+            var gangSkinIds = new HashSet<ulong>(kit.Skins.Values);
+            if (gangSkinIds.Count == 0)
+                return false;
+
+            // Check player's worn items for matching skin IDs
+            if (player.inventory?.containerWear?.itemList == null)
+                return false;
+
+            foreach (var item in player.inventory.containerWear.itemList)
+            {
+                if (item != null && item.skin != 0 && gangSkinIds.Contains(item.skin))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         #endregion
 
         #region Scientist Creation & Death Handling
@@ -462,6 +508,7 @@ namespace Oxide.Plugins
         {
             LoadGangConfig();
             timer.Every(FollowUpdateInterval, UpdateAllSedans);
+            timer.Every(TerritoryCheckInterval, CheckPlayerTerritories);
         }
 
         private void Unload()
@@ -498,6 +545,87 @@ namespace Oxide.Plugins
             _driveByStates.Clear();
             _retiringSedans.Clear();
             _scientistSeats.Clear();
+            _playerLastTerritory.Clear();
+            _playerTerritorySpawnCooldown.Clear();
+        }
+
+        /// <summary>
+        /// Check all players' territories and spawn drive-by gangs when they cross into enemy territory.
+        /// </summary>
+        private void CheckPlayerTerritories()
+        {
+            if (HoodWars == null || !HoodWars.IsLoaded)
+                return;
+
+            foreach (var player in BasePlayer.activePlayerList)
+            {
+                if (player == null || player.IsNpc || !player.IsConnected || player.IsDead())
+                    continue;
+
+                CheckPlayerTerritory(player);
+            }
+        }
+
+        /// <summary>
+        /// Check if a player has crossed into enemy territory and spawn a drive-by gang if so.
+        /// </summary>
+        private void CheckPlayerTerritory(BasePlayer player)
+        {
+            if (player == null || HoodWars == null || !HoodWars.IsLoaded)
+                return;
+
+            // Get player's gang from HoodWars
+            var playerGang = HoodWars.Call("API_GetPlayerGangName", player.userID) as string;
+            if (string.IsNullOrEmpty(playerGang) || playerGang == NeutralTerritory)
+                return; // Neutral players don't trigger territory spawns
+
+            // Get the territory the player is currently in
+            var currentTerritory = HoodWars.Call("GetNeighborhoodNameAt", player.transform.position) as string;
+            if (string.IsNullOrEmpty(currentTerritory) || currentTerritory == NeutralGround)
+            {
+                // Update last territory but don't spawn
+                _playerLastTerritory[player.userID] = currentTerritory ?? NeutralGround;
+                return;
+            }
+
+            // Get player's last known territory
+            _playerLastTerritory.TryGetValue(player.userID, out var lastTerritory);
+
+            // Update current territory
+            _playerLastTerritory[player.userID] = currentTerritory;
+
+            // Check if player crossed into a new enemy territory
+            if (lastTerritory != currentTerritory && currentTerritory != playerGang)
+            {
+                // Player entered enemy territory
+                // Check cooldown
+                if (_playerTerritorySpawnCooldown.TryGetValue(player.userID, out var lastSpawnTime))
+                {
+                    if (Time.realtimeSinceStartup - lastSpawnTime < TerritorySpawnCooldown)
+                        return; // Still on cooldown
+                }
+
+                // Check if player already has an active drive-by gang
+                if (_playerSedans.TryGetValue(player.userID, out var existingGangs) && existingGangs.Count > 0)
+                {
+                    // Clean up destroyed sedans
+                    existingGangs.RemoveAll(c => c == null || c.IsDestroyed);
+                    if (existingGangs.Count > 0)
+                        return; // Already has active gang
+                }
+
+                // Spawn a drive-by gang from the territory they entered
+                Puts($"[DriveBySedanGangs] Player {player.userID} ({playerGang}) crossed into {currentTerritory} territory - spawning drive-by!");
+                
+                // Set cooldown
+                _playerTerritorySpawnCooldown[player.userID] = Time.realtimeSinceStartup;
+
+                // Spawn the gang with the territory's gang name
+                EnsureGangForPlayerWithGang(player, 1, currentTerritory);
+
+                // Notify the player
+                player.ChatMessage($"<color=#ff4444>WARNING:</color> You've entered {currentTerritory} territory! A drive-by gang has been dispatched!");
+            }
         }
 
         #endregion
@@ -715,7 +843,8 @@ namespace Oxide.Plugins
                     TargetID = target.userID,
                     Shooters = new List<ScientistNPC>(seated),
                     LastShootTime = 0f,
-                    LastShooterIndex = -1
+                    LastShooterIndex = -1,
+                    GangName = gangName
                 };
             }
         }
@@ -870,6 +999,10 @@ namespace Oxide.Plugins
 
             BasePlayer target = BasePlayer.FindByID(ev.TargetID);
             if (target == null || !target.IsAlive()) return;
+
+            // Don't shoot gang members wearing the same gang's clothing
+            if (!string.IsNullOrEmpty(ev.GangName) && IsPlayerWearingGangClothing(target, ev.GangName))
+                return;
 
             var validShooters = new List<ScientistNPC>();
             for (int i = 0; i < ev.Shooters.Count; i++)
@@ -1405,7 +1538,8 @@ namespace Oxide.Plugins
                     TargetID = target.userID,
                     Shooters = new List<ScientistNPC>(seated),
                     LastShootTime = 0f,
-                    LastShooterIndex = -1
+                    LastShooterIndex = -1,
+                    GangName = gangName
                 };
             }
         }
