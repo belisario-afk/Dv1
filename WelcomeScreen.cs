@@ -87,11 +87,9 @@ namespace Oxide.Plugins
                 },
                 ImportantCommands = new List<CommandInfo>
                 {
-                    new CommandInfo { Command = "/whoami", Description = "Check your gang membership status" },
-                    new CommandInfo { Command = "/gangname", Description = "See your current gang name" },
-                    new CommandInfo { Command = "/claimdoor", Description = "Claim a door as yours" },
-                    new CommandInfo { Command = "/dooredit", Description = "Edit your door settings" },
-                    new CommandInfo { Command = "/doorinfo", Description = "Get information about a door" },
+                    new CommandInfo { Command = "/whoami", Description = "Check your gang membership and rep status" },
+                    new CommandInfo { Command = "/gangname [name]", Description = "Set your sub-gang/crew name (max 15 chars)" },
+                    new CommandInfo { Command = "/claimdoor", Description = "Claim a hotel door and get your code" },
                     new CommandInfo { Command = "/welcome", Description = "Show this welcome screen again" },
                     new CommandInfo { Command = "/info", Description = "Show server info and commands" }
                 }
