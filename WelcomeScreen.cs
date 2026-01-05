@@ -87,10 +87,11 @@ namespace Oxide.Plugins
                 },
                 ImportantCommands = new List<CommandInfo>
                 {
-                    new CommandInfo { Command = "/kit", Description = "Get your gang kit (clothing + weapon)" },
-                    new CommandInfo { Command = "/gang", Description = "Check your current gang status" },
-                    new CommandInfo { Command = "/hood", Description = "See territory information" },
-                    new CommandInfo { Command = "/rep", Description = "Check your reputation" },
+                    new CommandInfo { Command = "/whoami", Description = "Check your gang membership status" },
+                    new CommandInfo { Command = "/gangname", Description = "See your current gang name" },
+                    new CommandInfo { Command = "/claimdoor", Description = "Claim a door as yours" },
+                    new CommandInfo { Command = "/dooredit", Description = "Edit your door settings" },
+                    new CommandInfo { Command = "/doorinfo", Description = "Get information about a door" },
                     new CommandInfo { Command = "/welcome", Description = "Show this welcome screen again" },
                     new CommandInfo { Command = "/info", Description = "Show server info and commands" }
                 }
