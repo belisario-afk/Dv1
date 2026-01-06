@@ -51,7 +51,7 @@ namespace Oxide.Plugins
         private class DriveByState
         {
             public ulong TargetID;
-            public List<ScientistNPC> Shooters = new List<ScientistNPC>();
+            public List<GingerbreadNPC> Shooters = new List<GingerbreadNPC>();
             public float LastShootTime;
             public int LastShooterIndex = -1;
             public string GangName;
@@ -106,12 +106,12 @@ namespace Oxide.Plugins
             new Dictionary<ulong, List<BaseEntity>>();
 
         // sedan -> scientists owned by that sedan
-        private readonly Dictionary<BaseEntity, List<ScientistNPC>> _sedanScientists =
-            new Dictionary<BaseEntity, List<ScientistNPC>>();
+        private readonly Dictionary<BaseEntity, List<GingerbreadNPC>> _sedanScientists =
+            new Dictionary<BaseEntity, List<GingerbreadNPC>>();
 
         // scientist -> seat they are mounted in (for proper, player-like dismount)
-        private readonly Dictionary<ScientistNPC, BaseMountable> _scientistSeats =
-            new Dictionary<ScientistNPC, BaseMountable>();
+        private readonly Dictionary<GingerbreadNPC, BaseMountable> _scientistSeats =
+            new Dictionary<GingerbreadNPC, BaseMountable>();
 
         // sedan -> fully deployed (scientists have been dismounted)
         private readonly HashSet<BaseEntity> _deployedSedans =
@@ -451,7 +451,7 @@ namespace Oxide.Plugins
 
         #region Scientist Creation & Death Handling
 
-        private ScientistNPC CreateDressedGangScientist(Vector3 position, Quaternion rotation, string gangName)
+        private GingerbreadNPC CreateDressedGangScientist(Vector3 position, Quaternion rotation, string gangName)
         {
             var npcEntity = GameManager.server.CreateEntity(PrefabScientist, position, rotation);
             if (npcEntity == null)
@@ -460,10 +460,10 @@ namespace Oxide.Plugins
                 return null;
             }
 
-            var npc = npcEntity as ScientistNPC;
+            var npc = npcEntity as GingerbreadNPC;
             if (npc == null)
             {
-                Puts($"[DriveBySedanGangs] ERROR: Scientist cast failed. Entity type: {npcEntity?.GetType().Name ?? "NULL"}");
+                Puts($"[DriveBySedanGangs] ERROR: GingerbreadNPC cast failed. Entity type: {npcEntity?.GetType().Name ?? "NULL"}");
                 npcEntity.Kill();
                 return null;
             }
@@ -544,7 +544,7 @@ namespace Oxide.Plugins
 
         private void OnEntityDeath(BaseCombatEntity entity, HitInfo info)
         {
-            var npc = entity as ScientistNPC;
+            var npc = entity as GingerbreadNPC;
             if (npc != null)
             {
                 if (npc.net != null)
@@ -555,7 +555,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private void HandleScientistDeath(ScientistNPC npc)
+        private void HandleScientistDeath(GingerbreadNPC npc)
         {
             if (npc == null) return;
 
@@ -912,7 +912,7 @@ namespace Oxide.Plugins
             }
 
             int needed = 3;
-            var seated = new List<ScientistNPC>();
+            var seated = new List<GingerbreadNPC>();
 
             foreach (var seat in seats)
             {
@@ -950,7 +950,7 @@ namespace Oxide.Plugins
                 _driveByStates[car] = new DriveByState
                 {
                     TargetID = target.userID,
-                    Shooters = new List<ScientistNPC>(seated),
+                    Shooters = new List<GingerbreadNPC>(seated),
                     LastShootTime = 0f,
                     LastShooterIndex = -1,
                     GangName = gangName
@@ -1113,7 +1113,7 @@ namespace Oxide.Plugins
             if (!string.IsNullOrEmpty(ev.GangName) && IsPlayerWearingGangClothing(target, ev.GangName))
                 return;
 
-            var validShooters = new List<ScientistNPC>();
+            var validShooters = new List<GingerbreadNPC>();
             for (int i = 0; i < ev.Shooters.Count; i++)
             {
                 var npc = ev.Shooters[i];
@@ -1607,7 +1607,7 @@ namespace Oxide.Plugins
             }
 
             int needed = 3;
-            var seated = new List<ScientistNPC>();
+            var seated = new List<GingerbreadNPC>();
 
             foreach (var seat in seats)
             {
@@ -1645,7 +1645,7 @@ namespace Oxide.Plugins
                 _driveByStates[car] = new DriveByState
                 {
                     TargetID = target.userID,
-                    Shooters = new List<ScientistNPC>(seated),
+                    Shooters = new List<GingerbreadNPC>(seated),
                     LastShootTime = 0f,
                     LastShooterIndex = -1,
                     GangName = gangName
