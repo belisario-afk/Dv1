@@ -8,7 +8,7 @@ using UnityEngine.AI;
 
 namespace Oxide.Plugins
 {
-    [Info("DriveBySedanGangs", "belisario-afk + Gemini + Copilot", "2.8.0")]
+    [Info("DriveBySedanGangs", "belisario-afk + Gemini + Copilot", "2.9.0")]
     [Description("Spawn sedan gangs via command; sedans stalk players with 3 gang scientists that shoot from the car and on foot, then despawn when too far or dead.")]
     public class DriveBySedanGangs : RustPlugin
     {
@@ -73,6 +73,9 @@ namespace Oxide.Plugins
         private const string DefaultGangName = "Westside Pirus";
         private const string NeutralTerritory = "Neutral";
         private const string NeutralGround = "Neutral Ground";
+
+        // Debug mode - set to true in config to see debug messages in console
+        private bool _debugMode = false;
 
         private const string SedanPrefab = "assets/content/vehicles/sedan_a/sedantest.entity.prefab";
 
@@ -206,6 +209,8 @@ namespace Oxide.Plugins
                 ["Eastside Disciples"] = "east"
             };
 
+            Config["DebugMode"] = false;
+
             SaveConfig();
         }
 
@@ -272,6 +277,17 @@ namespace Oxide.Plugins
         #endregion
 
         #region Helpers
+
+        /// <summary>
+        /// Helper method to log debug messages only when debug mode is enabled
+        /// </summary>
+        private void DebugLog(string message)
+        {
+            if (_debugMode)
+            {
+                Puts($"[DriveBySedanGangs] DEBUG: {message}");
+            }
+        }
 
         private bool FindGroundPosition(Vector3 desired, out Vector3 groundPos)
         {
@@ -387,11 +403,11 @@ namespace Oxide.Plugins
         {
             if (player == null)
             {
-                Puts($"[DriveBySedanGangs] DEBUG: GetPlayerGangFromHoodWars - player is null");
+                DebugLog("GetPlayerGangFromHoodWars - player is null");
                 return null;
             }
 
-            Puts($"[DriveBySedanGangs] DEBUG: Attempting to get gang for player {player.userID} ({player.displayName})");
+            DebugLog($"Attempting to get gang for player {player.userID} ({player.displayName})");
 
             // Read directly from HoodWars data file
             try
@@ -399,50 +415,50 @@ namespace Oxide.Plugins
                 var dataFile = Interface.Oxide.DataFileSystem.GetFile("HoodWars_CoreData");
                 if (dataFile == null)
                 {
-                    Puts($"[DriveBySedanGangs] DEBUG: HoodWars_CoreData.json not found");
+                    DebugLog("HoodWars_CoreData.json not found");
                     return null;
                 }
 
                 var hoodWarsData = dataFile.ReadObject<HoodWarsStoredData>();
                 if (hoodWarsData == null || hoodWarsData.Players == null)
                 {
-                    Puts($"[DriveBySedanGangs] DEBUG: HoodWars data is null or has no Players dictionary");
+                    DebugLog("HoodWars data is null or has no Players dictionary");
                     return null;
                 }
 
-                Puts($"[DriveBySedanGangs] DEBUG: HoodWars data loaded, {hoodWarsData.Players.Count} players in database");
+                DebugLog($"HoodWars data loaded, {hoodWarsData.Players.Count} players in database");
 
                 if (!hoodWarsData.Players.TryGetValue(player.userID, out var playerInfo))
                 {
-                    Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} not found in HoodWars data");
+                    DebugLog($"Player {player.userID} not found in HoodWars data");
                     return null;
                 }
 
-                Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} HomeHood = {playerInfo.HomeHood}");
+                DebugLog($"Player {player.userID} HomeHood = {playerInfo.HomeHood}");
 
                 // HomeHood: 0=West, 1=North, 2=South, 3=East, 4=Neutral
                 if (playerInfo.HomeHood < 0 || playerInfo.HomeHood >= GangNames.Length)
                 {
-                    Puts($"[DriveBySedanGangs] DEBUG: Invalid HomeHood value: {playerInfo.HomeHood}");
+                    DebugLog($"Invalid HomeHood value: {playerInfo.HomeHood}");
                     return null;
                 }
 
                 var gangName = GangNames[playerInfo.HomeHood];
-                Puts($"[DriveBySedanGangs] DEBUG: Resolved gang name: '{gangName}'");
+                DebugLog($"Resolved gang name: '{gangName}'");
 
                 // Check if it's a valid gang (not Neutral)
                 if (gangName == NeutralTerritory || gangName == NeutralGround)
                 {
-                    Puts($"[DriveBySedanGangs] DEBUG: Player is Neutral, returning null");
+                    DebugLog("Player is Neutral, returning null");
                     return null;
                 }
 
-                Puts($"[DriveBySedanGangs] DEBUG: SUCCESS! Player {player.userID} is in gang '{gangName}'");
+                DebugLog($"SUCCESS! Player {player.userID} is in gang '{gangName}'");
                 return gangName;
             }
             catch (Exception ex)
             {
-                Puts($"[DriveBySedanGangs] DEBUG: Exception reading HoodWars data: {ex.Message}");
+                DebugLog($"Exception reading HoodWars data: {ex.Message}");
                 return null;
             }
         }
@@ -594,6 +610,13 @@ namespace Oxide.Plugins
         private void OnServerInitialized()
         {
             LoadGangConfig();
+            
+            // Load debug mode from config
+            if (Config["DebugMode"] != null)
+            {
+                _debugMode = Convert.ToBoolean(Config["DebugMode"]);
+            }
+            
             timer.Every(FollowUpdateInterval, UpdateAllSedans);
             timer.Every(TerritoryCheckInterval, CheckPlayerTerritories);
         }
@@ -682,8 +705,8 @@ namespace Oxide.Plugins
             // Debug logging to help test territory detection
             if (lastTerritory != currentTerritory)
             {
-                Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} moved from '{lastTerritory ?? "null"}' to '{currentTerritory}' at position X:{player.transform.position.x:F0} Z:{player.transform.position.z:F0}");
-                Puts($"[DriveBySedanGangs] DEBUG: Player's gang: {playerGang}, Current territory: {currentTerritory}, Is enemy territory: {currentTerritory != playerGang}");
+                DebugLog($"Player {player.userID} moved from '{lastTerritory ?? "null"}' to '{currentTerritory}' at position X:{player.transform.position.x:F0} Z:{player.transform.position.z:F0}");
+                DebugLog($"Player's gang: {playerGang}, Current territory: {currentTerritory}, Is enemy territory: {currentTerritory != playerGang}");
             }
 
             // Update current territory
@@ -699,7 +722,7 @@ namespace Oxide.Plugins
                     var cooldownRemaining = TerritorySpawnCooldown - (Time.realtimeSinceStartup - lastSpawnTime);
                     if (cooldownRemaining > 0)
                     {
-                        Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} on cooldown for {cooldownRemaining:F0} more seconds");
+                        DebugLog($"Player {player.userID} on cooldown for {cooldownRemaining:F0} more seconds");
                         return; // Still on cooldown
                     }
                 }
@@ -711,13 +734,13 @@ namespace Oxide.Plugins
                     existingGangs.RemoveAll(c => c == null || c.IsDestroyed);
                     if (existingGangs.Count > 0)
                     {
-                        Puts($"[DriveBySedanGangs] DEBUG: Player {player.userID} already has {existingGangs.Count} active drive-by gang(s)");
+                        DebugLog($"Player {player.userID} already has {existingGangs.Count} active drive-by gang(s)");
                         return; // Already has active gang
                     }
                 }
 
                 // Spawn a drive-by gang from the territory they entered
-                Puts($"[DriveBySedanGangs] TERRITORY SPAWN: Player {player.userID} ({playerGang}) crossed into {currentTerritory} territory at X:{player.transform.position.x:F0} Z:{player.transform.position.z:F0} - spawning drive-by!");
+                DebugLog($"TERRITORY SPAWN: Player {player.userID} ({playerGang}) crossed into {currentTerritory} territory at X:{player.transform.position.x:F0} Z:{player.transform.position.z:F0} - spawning drive-by!");
                 
                 // Set cooldown
                 _playerTerritorySpawnCooldown[player.userID] = Time.realtimeSinceStartup;
