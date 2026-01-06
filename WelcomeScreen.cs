@@ -89,6 +89,7 @@ namespace Oxide.Plugins
                 {
                     new CommandInfo { Command = "/whoami", Description = "Check your gang membership and rep status" },
                     new CommandInfo { Command = "/gangname [name]", Description = "Set your sub-gang/crew name (max 15 chars)" },
+                    new CommandInfo { Command = "/tag", Description = "Open gang tag menu to get spray cans" },
                     new CommandInfo { Command = "/claimdoor", Description = "Claim a hotel door and get your code" },
                     new CommandInfo { Command = "/welcome", Description = "Show this welcome screen again" },
                     new CommandInfo { Command = "/info", Description = "Show server info and commands" }

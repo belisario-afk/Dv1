@@ -9,19 +9,35 @@
 
 using System.Collections.Generic;
 using UnityEngine;
+using Oxide.Core;
 using Oxide.Game.Rust.Cui;
 using Oxide.Core.Plugins;
 using System.Linq;
 
 namespace Oxide.Plugins
 {
-    [Info("DaHoodTags", "Gemini", "1.4.0")]
-    [Description("Polished gang tag system for Da Hood with premium Glass UI and Spray Previews")]
+    [Info("DaHoodTags", "Gemini + Copilot", "1.5.0")]
+    [Description("Polished gang tag system for Da Hood with premium Glass UI and Spray Previews, integrated with HoodWars")]
     public class DaHoodTags : RustPlugin
     {
         private const string permAdmin = "dahoodtags.admin";
         
         private enum GangType { None, Pirus, Vagos, Surenos, Disciples }
+
+        #region HoodWars Data Types (for reading HoodWars_CoreData.json directly)
+
+        // These mirror the data structures in HoodWars.cs
+        private class HoodWarsStoredData
+        {
+            public Dictionary<ulong, HoodWarsPlayerInfo> Players = new Dictionary<ulong, HoodWarsPlayerInfo>();
+        }
+
+        private class HoodWarsPlayerInfo
+        {
+            public int HomeHood = 4; // 0=West (Pirus), 1=North (Vagos), 2=South (Surenos), 3=East (Disciples), 4=Neutral
+        }
+
+        #endregion
 
         private class SprayOption
         {
@@ -240,6 +256,30 @@ namespace Oxide.Plugins
         #region Helpers & Admin
         private GangType GetPlayerGang(BasePlayer player)
         {
+            // First try to read from HoodWars data file (same approach as DriveBySedanGangs)
+            try
+            {
+                var dataFile = Interface.Oxide.DataFileSystem.GetFile("HoodWars_CoreData");
+                if (dataFile != null)
+                {
+                    var hoodWarsData = dataFile.ReadObject<HoodWarsStoredData>();
+                    if (hoodWarsData?.Players != null && hoodWarsData.Players.TryGetValue(player.userID, out var playerInfo))
+                    {
+                        // HomeHood: 0=West (Pirus), 1=North (Vagos), 2=South (Surenos), 3=East (Disciples), 4=Neutral
+                        switch (playerInfo.HomeHood)
+                        {
+                            case 0: return GangType.Pirus;
+                            case 1: return GangType.Vagos;
+                            case 2: return GangType.Surenos;
+                            case 3: return GangType.Disciples;
+                            default: break; // Fall through to permission check
+                        }
+                    }
+                }
+            }
+            catch { /* Fall through to permission-based detection */ }
+
+            // Fallback: Check permissions (for admin testing or manual gang assignment)
             foreach (var gang in _gangs)
                 if (permission.UserHasPermission(player.UserIDString, gang.Value.Permission)) return gang.Key;
             return GangType.None;
