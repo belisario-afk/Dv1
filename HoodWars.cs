@@ -2733,6 +2733,28 @@ namespace Oxide.Plugins
             return result;
         }
 
+        // API method to modify a player's reputation (for DaHoodTags integration)
+        private void API_ModifyReputation(ulong playerId, int amount)
+        {
+            if (!_config.General.UseReputation) return;
+            
+            var info = GetPlayerData(playerId);
+            info.Reputation += amount;
+            
+            // Ensure reputation doesn't go below 0
+            if (info.Reputation < 0) info.Reputation = 0;
+            
+            SaveData();
+
+            // Notify player if online
+            var player = BasePlayer.FindByID(playerId);
+            if (player != null && amount != 0)
+            {
+                string changeText = amount > 0 ? $"<color=#55ff55>+{amount}</color>" : $"<color=#ff4444>{amount}</color>";
+                SendReply(player, $"<color=#55aaee>[REP]</color> {changeText} (Total: {info.Reputation})");
+            }
+        }
+
         #endregion
 
         #region Admin Testing Features
