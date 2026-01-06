@@ -35,9 +35,9 @@ namespace Oxide.Plugins
         private readonly Dictionary<string, GangVisuals> _gangKits = new Dictionary<string, GangVisuals>();
         private readonly Dictionary<string, string> _borderSpawns = new Dictionary<string, string>();
 
-        // Combat-oriented scientist prefab
+        // Gingerbread NPC prefab for gang members
         private const string PrefabScientist =
-            "assets/rust.ai/agents/npcplayer/humannpc/scientist/scientistnpc_cargo.prefab";
+            "assets/prefabs/npc/gingerbread/gingerbread_dungeon.prefab";
 
         private readonly HashSet<ulong> _driveByNPCs = new HashSet<ulong>();
 
