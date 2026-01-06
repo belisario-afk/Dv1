@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("ManualDoor", "Gemini", "3.5.0")]
+    [Info("ManualDoor", "Gemini", "3.7.0")]
     [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Integrates with HoodWars for gang-based hotel rooms.")]
     public class ManualDoor : RustPlugin
     {
@@ -53,6 +53,27 @@ namespace Oxide.Plugins
         private class StoredData
         {
             public Dictionary<ulong, DoorInfo> Doors = new Dictionary<ulong, DoorInfo>();
+            public Dictionary<string, DoorLayoutInfo> SavedLayouts = new Dictionary<string, DoorLayoutInfo>();
+        }
+
+        private class DoorLayoutInfo
+        {
+            public List<DoorLayoutEntry> Entries = new List<DoorLayoutEntry>();
+            public float SavedOriginX;
+            public float SavedOriginY;
+            public float SavedOriginZ;
+        }
+
+        private class DoorLayoutEntry
+        {
+            public float OffsetX; // Offset from origin
+            public float OffsetY;
+            public float OffsetZ;
+            public float RotX;
+            public float RotY;
+            public float RotZ;
+            public float RotW;
+            public bool IsDoubleDoor;
         }
 
         private class DoorInfo
@@ -141,6 +162,9 @@ namespace Oxide.Plugins
 
             if (data.Doors == null)
                 data.Doors = new Dictionary<ulong, DoorInfo>();
+            
+            if (data.SavedLayouts == null)
+                data.SavedLayouts = new Dictionary<string, DoorLayoutInfo>();
         }
 
         private void OnServerInitialized()
@@ -291,6 +315,117 @@ namespace Oxide.Plugins
             if (entity.net != null && data.Doors.ContainsKey(entity.net.ID.Value))
             {
                 SendReply(player, "<color=#ff6666>You cannot pick up this door. Use /removedoor as admin.</color>");
+                return false;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Block enemy players from deploying code locks on ManualDoors in enemy HQ.
+        /// This hook fires when a player tries to deploy an item on an entity.
+        /// </summary>
+        private object CanDeployItem(BasePlayer player, Deployer deployer, uint entityId)
+        {
+            if (player == null || deployer == null)
+                return null;
+
+            // Check if deploying a code lock
+            var item = deployer.GetItem();
+            if (item == null || item.info.shortname != "lock.code")
+                return null;
+
+            // Get the entity being deployed on
+            var entity = BaseNetworkable.serverEntities.Find(new NetworkableId(entityId)) as BaseEntity;
+            if (entity == null || entity.net == null)
+                return null;
+
+            // Check if it's a ManualDoor
+            if (!data.Doors.ContainsKey(entity.net.ID.Value))
+                return null;
+
+            // Check with HoodWars if player can deploy locks in this location
+            if (HoodWars == null || !HoodWars.IsLoaded)
+                return null; // HoodWars not loaded, allow
+
+            var result = HoodWars.Call("API_CanPlayerClaimInHQ", player, entity.transform.position);
+            if (result is bool canClaim && !canClaim)
+            {
+                var gangName = HoodWars.Call("API_GetHQGangName", entity.transform.position);
+                SendReply(player, $"<color=#ff6666>You cannot place locks on doors in {gangName} HQ. Only gang members can lock hotel doors in their own HQ.</color>");
+                return false;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Secondary hook - fires when an item (like code lock) is deployed on a door.
+        /// If player is in enemy territory, immediately remove the lock.
+        /// </summary>
+        private void OnItemDeployed(Deployer deployer, BaseEntity entity, BaseEntity deployedEntity)
+        {
+            if (deployer == null || entity == null || deployedEntity == null)
+                return;
+
+            // Check if the deployed entity is a code lock
+            if (!(deployedEntity is CodeLock codeLock))
+                return;
+
+            // Check if it's on a ManualDoor
+            if (entity.net == null || !data.Doors.ContainsKey(entity.net.ID.Value))
+                return;
+
+            var player = deployer.GetOwnerPlayer();
+            if (player == null)
+                return;
+
+            // Check with HoodWars if player can deploy locks in this location
+            if (HoodWars == null || !HoodWars.IsLoaded)
+                return; // HoodWars not loaded, allow
+
+            var result = HoodWars.Call("API_CanPlayerClaimInHQ", player, entity.transform.position);
+            if (result is bool canClaim && !canClaim)
+            {
+                var gangName = HoodWars.Call("API_GetHQGangName", entity.transform.position);
+                
+                // Remove the code lock and refund it
+                codeLock.Kill();
+                
+                // Give back the code lock
+                var lockItem = ItemManager.CreateByName("lock.code", 1);
+                if (lockItem != null)
+                    player.GiveItem(lockItem);
+                
+                SendReply(player, $"<color=#ff6666>You cannot place locks on doors in {gangName} HQ. Only gang members can lock hotel doors in their own HQ.</color>");
+            }
+        }
+
+        /// <summary>
+        /// Prevent enemies from setting codes on existing locks on ManualDoors in enemy HQ.
+        /// </summary>
+        private object CanChangeCode(BasePlayer player, CodeLock codeLock, string newCode, bool isGuestCode)
+        {
+            if (player == null || codeLock == null)
+                return null;
+
+            var parent = codeLock.GetParentEntity();
+            if (parent == null || parent.net == null)
+                return null;
+
+            // Check if it's a ManualDoor
+            if (!data.Doors.ContainsKey(parent.net.ID.Value))
+                return null;
+
+            // Check with HoodWars if player can use locks in this location
+            if (HoodWars == null || !HoodWars.IsLoaded)
+                return null; // HoodWars not loaded, allow
+
+            var result = HoodWars.Call("API_CanPlayerClaimInHQ", player, parent.transform.position);
+            if (result is bool canClaim && !canClaim)
+            {
+                var gangName = HoodWars.Call("API_GetHQGangName", parent.transform.position);
+                SendReply(player, $"<color=#ff6666>You cannot set codes on doors in {gangName} HQ. Only gang members can lock hotel doors in their own HQ.</color>");
                 return false;
             }
 
@@ -660,6 +795,254 @@ namespace Oxide.Plugins
 
             SaveData();
             SendReply(player, "<color=#66ff66>Door claim reset.</color>");
+        }
+
+        /// <summary>
+        /// Save all current door positions as a layout.
+        /// Usage: /savelayout <name>
+        /// </summary>
+        [ChatCommand("savelayout")]
+        private void CmdSaveLayout(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /savelayout <name></color>");
+                return;
+            }
+
+            string layoutName = args[0].ToLower();
+
+            if (data.Doors.Count == 0)
+            {
+                SendReply(player, "<color=#ff6666>No ManualDoors exist to save.</color>");
+                return;
+            }
+
+            // Calculate centroid of all doors as the origin
+            float originX = 0, originY = 0, originZ = 0;
+            foreach (var door in data.Doors.Values)
+            {
+                originX += door.PosX;
+                originY += door.PosY;
+                originZ += door.PosZ;
+            }
+            originX /= data.Doors.Count;
+            originY /= data.Doors.Count;
+            originZ /= data.Doors.Count;
+
+            var layout = new DoorLayoutInfo
+            {
+                SavedOriginX = originX,
+                SavedOriginY = originY,
+                SavedOriginZ = originZ
+            };
+
+            foreach (var door in data.Doors.Values)
+            {
+                layout.Entries.Add(new DoorLayoutEntry
+                {
+                    OffsetX = door.PosX - originX,
+                    OffsetY = door.PosY - originY,
+                    OffsetZ = door.PosZ - originZ,
+                    RotX = door.RotX,
+                    RotY = door.RotY,
+                    RotZ = door.RotZ,
+                    RotW = door.RotW,
+                    IsDoubleDoor = door.IsDoubleDoor
+                });
+            }
+
+            if (data.SavedLayouts == null)
+                data.SavedLayouts = new Dictionary<string, DoorLayoutInfo>();
+
+            data.SavedLayouts[layoutName] = layout;
+            SaveData();
+
+            SendReply(player, $"<color=#66ff66>Layout '{layoutName}' saved with {layout.Entries.Count} doors. Origin at ({originX:F1}, {originY:F1}, {originZ:F1})</color>");
+        }
+
+        /// <summary>
+        /// List all saved layouts.
+        /// Usage: /listlayouts
+        /// </summary>
+        [ChatCommand("listlayouts")]
+        private void CmdListLayouts(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (data.SavedLayouts == null || data.SavedLayouts.Count == 0)
+            {
+                SendReply(player, "<color=#ffcc00>No saved layouts found.</color>");
+                return;
+            }
+
+            SendReply(player, "<color=#66ccff>=== Saved Layouts ===</color>");
+            foreach (var kvp in data.SavedLayouts)
+            {
+                SendReply(player, $"<color=#ffffff>• {kvp.Key}: {kvp.Value.Entries.Count} doors</color>");
+            }
+        }
+
+        /// <summary>
+        /// Spawn doors from a saved layout at a new position.
+        /// Usage: /spawnlayout <name>
+        /// </summary>
+        [ChatCommand("spawnlayout")]
+        private void CmdSpawnLayout(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /spawnlayout <name></color>");
+                return;
+            }
+
+            string layoutName = args[0].ToLower();
+
+            if (data.SavedLayouts == null || !data.SavedLayouts.TryGetValue(layoutName, out var layout))
+            {
+                SendReply(player, $"<color=#ff6666>Layout '{layoutName}' not found.</color>");
+                return;
+            }
+
+            if (!Physics.Raycast(player.eyes.HeadRay(), out var hit, 50f))
+            {
+                SendReply(player, "<color=#ffcc00>Look at the ground to place the layout center.</color>");
+                return;
+            }
+
+            Vector3 newOrigin = hit.point;
+            int spawned = 0;
+
+            foreach (var entry in layout.Entries)
+            {
+                var pos = new Vector3(
+                    newOrigin.x + entry.OffsetX,
+                    newOrigin.y + entry.OffsetY,
+                    newOrigin.z + entry.OffsetZ
+                );
+                var rot = new Quaternion(entry.RotX, entry.RotY, entry.RotZ, entry.RotW);
+
+                var door = SpawnPermanentDoor(pos, rot, player.userID, entry.IsDoubleDoor);
+                if (door != null)
+                    spawned++;
+            }
+
+            SendReply(player, $"<color=#66ff66>Spawned {spawned}/{layout.Entries.Count} doors from layout '{layoutName}' at ({newOrigin.x:F1}, {newOrigin.y:F1}, {newOrigin.z:F1})</color>");
+        }
+
+        /// <summary>
+        /// Delete a saved layout.
+        /// Usage: /deletelayout <name>
+        /// </summary>
+        [ChatCommand("deletelayout")]
+        private void CmdDeleteLayout(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 1)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /deletelayout <name></color>");
+                return;
+            }
+
+            string layoutName = args[0].ToLower();
+
+            if (data.SavedLayouts == null || !data.SavedLayouts.ContainsKey(layoutName))
+            {
+                SendReply(player, $"<color=#ff6666>Layout '{layoutName}' not found.</color>");
+                return;
+            }
+
+            data.SavedLayouts.Remove(layoutName);
+            SaveData();
+            SendReply(player, $"<color=#66ff66>Layout '{layoutName}' deleted.</color>");
+        }
+
+        /// <summary>
+        /// Move all existing doors by an offset.
+        /// Usage: /movedoors <x> <y> <z>
+        /// </summary>
+        [ChatCommand("movedoors")]
+        private void CmdMoveAllDoors(BasePlayer player, string cmd, string[] args)
+        {
+            if (!permission.UserHasPermission(player.UserIDString, AdminPermission))
+            {
+                SendReply(player, "<color=#ff6666>Permission denied.</color>");
+                return;
+            }
+
+            if (args.Length < 3)
+            {
+                SendReply(player, "<color=#ffcc00>Usage: /movedoors <x> <y> <z></color>");
+                return;
+            }
+
+            if (!float.TryParse(args[0], out float x) || !float.TryParse(args[1], out float y) || !float.TryParse(args[2], out float z))
+            {
+                SendReply(player, "<color=#ff6666>Invalid offset values. Use numbers.</color>");
+                return;
+            }
+
+            var offset = new Vector3(x, y, z);
+            var doorIds = data.Doors.Keys.ToList();
+            int moved = 0;
+
+            foreach (var doorId in doorIds)
+            {
+                if (!data.Doors.TryGetValue(doorId, out var info))
+                    continue;
+
+                var state = GetCodeLockState(doorId);
+                var newPos = info.GetPosition() + offset;
+                var rot = info.GetRotation();
+                var newInfo = info.Clone();
+                newInfo.SetPosition(newPos);
+
+                intendedKills.Add(doorId);
+                KillDoorById(doorId);
+                data.Doors.Remove(doorId);
+
+                if (claimTimers.TryGetValue(doorId, out var t))
+                {
+                    t?.Destroy();
+                    claimTimers.Remove(doorId);
+                }
+
+                var newDoor = SpawnDoorWithState(newPos, rot, newInfo, state);
+                if (newDoor != null)
+                {
+                    var newId = newDoor.net.ID.Value;
+                    data.Doors[newId] = newInfo;
+
+                    if (newInfo.ClaimedBy != 0 && GetTimeRemaining(newInfo) > 0)
+                        StartClaimTimer(newDoor, newInfo);
+
+                    moved++;
+                }
+            }
+
+            SaveData();
+            SendReply(player, $"<color=#66ff66>Moved {moved} doors by offset ({x:F2}, {y:F2}, {z:F2})</color>");
         }
 
         #endregion

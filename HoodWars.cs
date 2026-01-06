@@ -37,9 +37,9 @@ namespace Oxide.Plugins
         [PluginReference]
         private Plugin GangKits;
 
-        // DriveBy plugin reference for NPC drive-by events
+        // DriveBySedanGangs plugin reference for NPC drive-by events
         [PluginReference]
-        private Plugin DriveBy;
+        private Plugin DriveBySedanGangs;
 
         private const string PrefabMarker = "assets/prefabs/tools/map/genericradiusmarker.prefab";
         private const string PrefabSphere = "assets/prefabs/visualization/sphere.prefab";
@@ -1542,9 +1542,9 @@ namespace Oxide.Plugins
         // Test DriveBy functionality via admin command
         private void TestDriveBy(BasePlayer player)
         {
-            if (DriveBy == null || !DriveBy.IsLoaded)
+            if (DriveBySedanGangs == null || !DriveBySedanGangs.IsLoaded)
             {
-                SendReply(player, "<color=#ff4444>ERROR:</color> DriveBy plugin is not loaded.");
+                SendReply(player, "<color=#ff4444>ERROR:</color> DriveBySedanGangs plugin is not loaded.");
                 return;
             }
 
@@ -1558,9 +1558,17 @@ namespace Oxide.Plugins
 
             SendReply(player, $"<color=#ff4444>DRIVE-BY TEST:</color> Triggering drive-by in <color={hood.HexColor}>{hood.Name}</color> territory...");
             
-            // Call the DriveBy plugin's test command functionality
-            // DriveBy has a /testdriveby chat command, but we can also call it directly
-            player.Command("chat.say", "/testdriveby");
+            // Call the DriveBySedanGangs plugin's API to spawn a drive-by gang
+            // This will automatically choose a rival gang based on territory
+            var result = DriveBySedanGangs.Call("API_SpawnDriveByGang", player.userID, 1, hood.Name);
+            if (result is bool success && success)
+            {
+                SendReply(player, $"<color=#55ff55>SUCCESS:</color> Drive-by gang ({hood.Name}) has been dispatched!");
+            }
+            else
+            {
+                SendReply(player, "<color=#ff4444>ERROR:</color> Failed to spawn drive-by gang. Check console for details.");
+            }
         }
 
         // Admin command to set the TC they're looking at as the HQ TC for a gang
@@ -2192,8 +2200,8 @@ namespace Oxide.Plugins
                 Text = { Text = gangKitsLoaded ? "Give My Gang Kit" : "GangKits N/A", FontSize = 9, Align = TextAnchor.MiddleCenter }
             }, "Content");
 
-            // DriveBy test button (if DriveBy plugin is loaded)
-            bool driveByLoaded = DriveBy != null && DriveBy.IsLoaded;
+            // DriveBySedanGangs test button (if DriveBySedanGangs plugin is loaded)
+            bool driveByLoaded = DriveBySedanGangs != null && DriveBySedanGangs.IsLoaded;
             elements.Add(new CuiButton
             {
                 Button = { Color = driveByLoaded ? "0.6 0.3 0.3 1" : "0.4 0.4 0.4 1", Command = "hoodwars.admin testdriveby" },
@@ -2674,14 +2682,25 @@ namespace Oxide.Plugins
         // API method to get a player's gang name by user ID (used by GangKits)
         private string GetPlayerGangName(ulong playerId)
         {
-            if (_config == null || _storedData == null) return "Neutral";
+            Puts($"[DEBUG] GetPlayerGangName called for {playerId}");
+            if (_config == null || _storedData == null)
+            {
+                Puts($"[DEBUG] GetPlayerGangName: config or storedData is null");
+                return "Neutral";
+            }
             
             var playerInfo = GetPlayerData(playerId);
+            Puts($"[DEBUG] GetPlayerGangName: playerInfo.HomeHood = {playerInfo.HomeHood}");
             if (playerInfo.HomeHood == NeighborhoodType.Neutral)
+            {
+                Puts($"[DEBUG] GetPlayerGangName: Player is Neutral");
                 return "Neutral";
+            }
             
             var hoodConfig = GetNeighborhoodConfig(playerInfo.HomeHood);
-            return hoodConfig?.Name ?? "Neutral";
+            var gangName = hoodConfig?.Name ?? "Neutral";
+            Puts($"[DEBUG] GetPlayerGangName: returning '{gangName}'");
+            return gangName;
         }
 
         // API method to get neighborhood name at position (used by DriveBy)
@@ -2695,9 +2714,45 @@ namespace Oxide.Plugins
         }
 
         // API wrapper for external plugins to get player gang name
-        private string API_GetPlayerGangName(ulong playerId)
+        // NOTE: Must return object for Oxide Plugin.Call() to work properly
+        private object API_GetPlayerGangName(ulong playerId)
         {
-            return GetPlayerGangName(playerId);
+            Puts($"[DEBUG] API_GetPlayerGangName called for {playerId}");
+            var result = GetPlayerGangName(playerId);
+            Puts($"[DEBUG] API_GetPlayerGangName returning: {result}");
+            return result;
+        }
+
+        // Oxide hook-style method for cross-plugin communication
+        // This format is commonly used for plugin-to-plugin API calls
+        object OnGetPlayerGangName(ulong playerId)
+        {
+            Puts($"[DEBUG] OnGetPlayerGangName called for {playerId}");
+            var result = GetPlayerGangName(playerId);
+            Puts($"[DEBUG] OnGetPlayerGangName returning: {result}");
+            return result;
+        }
+
+        // API method to modify a player's reputation (for DaHoodTags integration)
+        private void API_ModifyReputation(ulong playerId, int amount)
+        {
+            if (!_config.General.UseReputation) return;
+            
+            var info = GetPlayerData(playerId);
+            info.Reputation += amount;
+            
+            // Ensure reputation doesn't go below 0
+            if (info.Reputation < 0) info.Reputation = 0;
+            
+            SaveData();
+
+            // Notify player if online
+            var player = BasePlayer.FindByID(playerId);
+            if (player != null && amount != 0)
+            {
+                string changeText = amount > 0 ? $"<color=#55ff55>+{amount}</color>" : $"<color=#ff4444>{amount}</color>";
+                SendReply(player, $"<color=#55aaee>[REP]</color> {changeText} (Total: {info.Reputation})");
+            }
         }
 
         #endregion
