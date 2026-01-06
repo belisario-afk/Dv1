@@ -473,10 +473,17 @@ namespace Oxide.Plugins
             if (npc.net != null)
                 _driveByNPCs.Add(npc.net.ID.Value);
 
-            npc.InitializeHealth(ScientistHealth, ScientistHealth);
-            npc.startHealth = ScientistHealth;
-            npc.SetMaxHealth(ScientistHealth);
-            npc.SetHealth(ScientistHealth);
+            // Set health safely - gingerbread NPCs may have different health initialization
+            try
+            {
+                npc.startHealth = ScientistHealth;
+                npc.SetMaxHealth(ScientistHealth);
+                npc.SetHealth(ScientistHealth);
+            }
+            catch (System.Exception ex)
+            {
+                Puts($"[DriveBySedanGangs] Warning: Health initialization exception for NPC: {ex.Message}");
+            }
 
             npc.inventory.Strip();
 
