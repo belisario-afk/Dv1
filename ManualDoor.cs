@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("ManualDoor", "Gemini", "3.6.0")]
+    [Info("ManualDoor", "Gemini", "3.7.0")]
     [Description("Spawns permanent, non-decaying doors with claim timers, eviction, and admin move/rotate GUI. Integrates with HoodWars for gang-based hotel rooms.")]
     public class ManualDoor : RustPlugin
     {
@@ -323,7 +323,7 @@ namespace Oxide.Plugins
 
         /// <summary>
         /// Block enemy players from deploying code locks on ManualDoors in enemy HQ.
-        /// This prevents rivals from locking up hotel doors in territories they don't belong to.
+        /// This hook fires when a player tries to deploy an item on an entity.
         /// </summary>
         private object CanDeployItem(BasePlayer player, Deployer deployer, uint entityId)
         {
@@ -353,6 +353,79 @@ namespace Oxide.Plugins
             {
                 var gangName = HoodWars.Call("API_GetHQGangName", entity.transform.position);
                 SendReply(player, $"<color=#ff6666>You cannot place locks on doors in {gangName} HQ. Only gang members can lock hotel doors in their own HQ.</color>");
+                return false;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Secondary hook - fires when an item (like code lock) is deployed on a door.
+        /// If player is in enemy territory, immediately remove the lock.
+        /// </summary>
+        private void OnItemDeployed(Deployer deployer, BaseEntity entity, BaseEntity deployedEntity)
+        {
+            if (deployer == null || entity == null || deployedEntity == null)
+                return;
+
+            // Check if the deployed entity is a code lock
+            if (!(deployedEntity is CodeLock codeLock))
+                return;
+
+            // Check if it's on a ManualDoor
+            if (entity.net == null || !data.Doors.ContainsKey(entity.net.ID.Value))
+                return;
+
+            var player = deployer.GetOwnerPlayer();
+            if (player == null)
+                return;
+
+            // Check with HoodWars if player can deploy locks in this location
+            if (HoodWars == null || !HoodWars.IsLoaded)
+                return; // HoodWars not loaded, allow
+
+            var result = HoodWars.Call("API_CanPlayerClaimInHQ", player, entity.transform.position);
+            if (result is bool canClaim && !canClaim)
+            {
+                var gangName = HoodWars.Call("API_GetHQGangName", entity.transform.position);
+                
+                // Remove the code lock and refund it
+                codeLock.Kill();
+                
+                // Give back the code lock
+                var lockItem = ItemManager.CreateByName("lock.code", 1);
+                if (lockItem != null)
+                    player.GiveItem(lockItem);
+                
+                SendReply(player, $"<color=#ff6666>You cannot place locks on doors in {gangName} HQ. Only gang members can lock hotel doors in their own HQ.</color>");
+            }
+        }
+
+        /// <summary>
+        /// Prevent enemies from setting codes on existing locks on ManualDoors in enemy HQ.
+        /// </summary>
+        private object CanChangeCode(BasePlayer player, CodeLock codeLock, string newCode, bool isGuestCode)
+        {
+            if (player == null || codeLock == null)
+                return null;
+
+            var parent = codeLock.GetParentEntity();
+            if (parent == null || parent.net == null)
+                return null;
+
+            // Check if it's a ManualDoor
+            if (!data.Doors.ContainsKey(parent.net.ID.Value))
+                return null;
+
+            // Check with HoodWars if player can use locks in this location
+            if (HoodWars == null || !HoodWars.IsLoaded)
+                return null; // HoodWars not loaded, allow
+
+            var result = HoodWars.Call("API_CanPlayerClaimInHQ", player, parent.transform.position);
+            if (result is bool canClaim && !canClaim)
+            {
+                var gangName = HoodWars.Call("API_GetHQGangName", parent.transform.position);
+                SendReply(player, $"<color=#ff6666>You cannot set codes on doors in {gangName} HQ. Only gang members can lock hotel doors in their own HQ.</color>");
                 return false;
             }
 
